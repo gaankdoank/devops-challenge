@@ -102,3 +102,36 @@ resource "aws_network_acl_rule" "protected_outbound_ephemeral" {
   from_port      = 1024
   to_port        = 65535
 }
+
+resource "aws_network_acl_rule" "protected_inbound_postgres_pods" {
+  network_acl_id = aws_network_acl.protected.id
+  rule_number    = 101
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "100.64.0.0/16"
+  from_port      = 5432
+  to_port        = 5432
+}
+
+resource "aws_network_acl_rule" "protected_inbound_redis_pods" {
+  network_acl_id = aws_network_acl.protected.id
+  rule_number    = 111
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "100.64.0.0/16"
+  from_port      = 6379
+  to_port        = 6379
+}
+
+resource "aws_network_acl_rule" "protected_outbound_ephemeral_pods" {
+  network_acl_id = aws_network_acl.protected.id
+  rule_number    = 101
+  egress         = true
+  protocol       = "tcp"
+  rule_action    = "allow"
+  cidr_block     = "100.64.0.0/16"
+  from_port      = 1024
+  to_port        = 65535
+}
