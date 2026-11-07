@@ -46,6 +46,48 @@ metadata:
   name: helios-ai-app
 spec:
   # TODO: fill in template, limits, and disruption
+  template:
+    metadata:
+      labels:
+        workload: app
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: helios-ai-app-pool
+      taints:
+        - key: workload
+          value: app
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["c", "m"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["4"]
+        - key: karpenter.k8s.aws/instance-cpu
+          operator: In
+          values: ["4", "8", "16"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      expireAfter: 720h
+  limits:
+    cpu: "80"
+    memory: 160Gi
+    nodes: "20"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 2m
+    budgets:
+      - nodes: "20%"
 
 ---
 # YOUR DB NODEPOOL HERE
@@ -54,4 +96,45 @@ kind: NodePool
 metadata:
   name: helios-ai-db
 spec:
-  # TODO: fill in template, limits, and disruption
+  template:
+    metadata:
+      labels:
+        workload: db
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: helios-ai-db-pool
+      taints:
+        - key: workload
+          value: db
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["r", "m"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["4"]
+        - key: karpenter.k8s.aws/instance-cpu
+          operator: In
+          values: ["4", "8"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      expireAfter: Never
+  limits:
+    cpu: "16"
+    memory: 64Gi
+    nodes: "4"
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: Never
+    budgets:
+      - nodes: "0"
