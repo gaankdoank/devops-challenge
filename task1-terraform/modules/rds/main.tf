@@ -22,13 +22,13 @@ resource "aws_security_group" "rds" {
   description = "RDS PostgreSQL security group"
   vpc_id      = var.vpc_id
 
-  ingress {
-    description     = "PostgreSQL from RDS Proxy"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.rds_proxy.id] # BUG 1: circular ref
-  }
+  # ingress {
+  #   description     = "PostgreSQL from RDS Proxy"
+  #   from_port       = 5432
+  #   to_port         = 5432
+  #   protocol        = "tcp"
+  #   security_groups = [aws_security_group.rds_proxy.id] # BUG 1: circular ref
+  # }
 
   egress {
     from_port   = 0
@@ -57,15 +57,44 @@ resource "aws_security_group" "rds_proxy" {
     # Without this rule, all pod→RDS Proxy connections are silently dropped.
   }
 
-  egress {
-    description     = "PostgreSQL to RDS"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.rds.id] # BUG 1: circular ref
+  ingress {
+    description = "PostgreSQL from EKS pods"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["100.64.0.0/16"]
   }
 
+  # egress {
+  #   description     = "PostgreSQL to RDS"
+  #   from_port       = 5432
+  #   to_port         = 5432
+  #   protocol        = "tcp"
+  #   security_groups = [aws_security_group.rds.id] # BUG 1: circular ref
+  # }
+
   tags = { Name = "${var.cluster_name}-rds-proxy-sg" }
+}
+
+#ingress from rds proxy
+resource "aws_security_group_rule" "rds_ingress" {
+  type              = "ingress"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  security_group_id = aws_security_group.rds.id
+  source_security_group_id = aws_security_group.rds_proxy.id
+}
+
+#egress from rds to rds proxy
+resource "aws_security_group_rule" "rds_proxy_egress" {
+  type                     = "egress"
+  description              = "PostgreSQL to RDS"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds_proxy.id
+  source_security_group_id = aws_security_group.rds.id
 }
 
 # ------------------------------------------------------------------------------
@@ -75,6 +104,23 @@ resource "aws_security_group" "rds_proxy" {
 # ------------------------------------------------------------------------------
 
 # YOUR CODE HERE
+resource "aws_db_parameter_group" "app" {
+  name        = "${var.cluster_name}-app-pg16"
+  family      = "postgres16"
+  description = "Enforce TLS for ${var.cluster_name} RDS PostgreSQL"
+
+  parameter {
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "immediate"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = { Name = "${var.cluster_name}-app-pg16" }
+}
 
 # ------------------------------------------------------------------------------
 # RDS Instance
@@ -110,6 +156,7 @@ resource "aws_db_instance" "app" {
 
   # TODO: reference your parameter group here once created
   # parameter_group_name = ...
+  parameter_group_name = aws_db_parameter_group.app.name
 
   tags = { Name = "${var.cluster_name}-app-rds" }
 }
@@ -136,16 +183,16 @@ resource "aws_db_proxy" "app" {
   name                   = "${var.cluster_name}-app-proxy"
   debug_logging          = false
   engine_family          = "POSTGRESQL"
-  idle_client_timeout    = # TODO
+  idle_client_timeout    = 1800 # TODO
   require_tls            = true
   role_arn               = var.rds_proxy_role_arn
-  vpc_security_group_ids = [] # TODO: which SG?
-  vpc_subnet_ids         = [] # TODO: which subnets?
+  vpc_security_group_ids = [aws_security_group.rds_proxy.id] # TODO: which SG?
+  vpc_subnet_ids         = var.protected_subnet_ids # TODO: which subnets?
 
   auth {
     auth_scheme = "SECRETS"
     description = "App DB credentials"
-    iam_auth    = # TODO: "DISABLED" or "REQUIRED"?
+    iam_auth    = "DISABLED" # TODO: "DISABLED" or "REQUIRED"?
     secret_arn  = var.db_secret_arn
   }
 
@@ -156,7 +203,7 @@ resource "aws_db_proxy_default_target_group" "app" {
   db_proxy_name = aws_db_proxy.app.name
 
   connection_pool_config {
-    connection_borrow_timeout = # TODO
+    connection_borrow_timeout = 5 # TODO
     max_connections_percent   = 100
   }
 }
